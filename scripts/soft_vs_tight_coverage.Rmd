@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Objective
 
-In this document, my goal is to see how tightly defensive backs line up against recievers at the snap, and whether this affects how well they cover routes. Some things to consider:
+In this document, my goal is to see how tightly defensive backs line up against recievers at the snap, and whether this affects how well they cover routes. Some questions to consider:
 
 - see which defensive backs play tight/soft most frequently, and which teams play tight/soft most frequently
 - is there a certain "type" of DB that plays tight/soft more often. Perhaps slower DB's play softer more often so they don't get burned?
@@ -31,6 +31,8 @@ library(janitor)
 library(lubridate)
 ```
 
+First, we read in the data. Only using week 1 tracking data so my laptop doesn't explode
+
 ```{r}
 ### Read in Big Data Bowl data
 plays_data <- read_csv(here::here("datasets/plays.csv"))
@@ -38,6 +40,8 @@ players_data <- read_csv(here::here("datasets/players.csv"))
 games_data <- read_csv(here::here("datasets/games.csv"))
 week1_tracking_data <- read_csv(here::here("datasets/week1.csv"))
 ```
+
+Next, cleaning up data. I'll probably add to this as I come across random things
 
 ```{r}
 ### Clean data
@@ -60,6 +64,8 @@ players_data <- players_data %>%
 
 ```
 
+Join the games, plays, and tracking data together
+
 ```{r}
 ### Joining data together
 
@@ -80,40 +86,109 @@ plays_tracking_data <- plays_tracking_data %>%
   nest(tracking_data = x:route)
 ```
 
+Now, the meat and potatoes. Calculating the distance of each defender from the line of scrimmage for a random play in week 1.
+
 ```{r}
 ### Calculate distance from line of scrimmage/reciever at snap
+
+### First, we are going to do it for a random play to get a feel
+### for how to do the calculation
+
+### Set seed for reproducibility
 set.seed(123)
 
+### Pull out the game ID and play ID of a random play
 ex_ids <-  plays_tracking_data %>%
   filter(pass_result == "C") %>%
   slice_sample(n = 1) %>% 
   select(game_id, play_id) 
 
+### Pull the game ID of the random play
 example_game_id <- ex_ids %>% 
   select(game_id) %>% 
   flatten_dbl()
 
+### Pull the play ID of the random play
 example_play_id <- ex_ids %>% 
   select(play_id) %>% 
   flatten_dbl()
 
+### Get the tracking data of the random play
 example_play <- plays_tracking_data %>%
   filter(play_id == example_play_id, game_id == example_game_id) %>% 
   unnest(cols = tracking_data)
 
+### Great, now we have our random play selected. I'll start of by plotting
+### the players' position at the snap
+
+### Pull the tracking data at the snap
 snap_data <- example_play %>% 
   filter(event == "ball_snap")
 
+### Pull out the location of the football
+football_location <- snap_data %>% 
+  filter(display_name == "Football") %>% 
+  select(x, y)
+
+### Pull the "x" location of the football
+football_x <- football_location %>% 
+  select(x) %>% 
+  flatten_dbl()
+
+### Pull the "y" location of the football
+football_y <- football_location %>% 
+  select(y) %>% 
+  flatten_dbl()
+
+### Add the x and y location of the football as a column to the
+### dataframe. This will be used when we calculate the distance between
+### each player and the line of scrimmage
+snap_data <- snap_data %>% 
+  add_column(
+    football_x = football_x, 
+    football_y = football_y
+  )
+
+### Plot of all players and their position, with the dotted line
+### representing the line of scrimmage
 snap_data %>% 
   ggplot(aes(x = y, y = x)) +
     geom_point(aes(color = team)) +
-    geom_hline(linetype = "dashed", yintercept = filter(snap_data, display_name == "Football") %>% 
-                                                   .$x) +
+    geom_hline(linetype = "dashed", yintercept = football_x) +
     geom_text(aes(label = position)) 
 
 
+### Cool. Now let's calculate how far each player is from the 
+### line of scrimmage
+snap_data <- snap_data %>% 
+  mutate(
+    xdist_ball = round(x - football_x, 2),
+    ydist_ball = round(y - football_y, 2)
+  ) 
+
+### Plot a line segment with the vertical distance of each 
+### defender from the line of scrimmage.
+### One thing that will have to be changed: in the geom_segment
+### function, I specify that I only want to plot a segment for the
+### home team, since that is the defense in this play. However, home
+### won't always be defense, so I'll need to generalize this. Probably
+### by adding a flag to each player indicating if they are on 
+### offense or defense
+### lol that was a long comment
+snap_data %>% 
+  ggplot(aes(x = y, y = x)) +
+    geom_point(aes(color = team, size = team)) +
+    geom_segment(
+      data = filter(snap_data, team == "home"),
+      aes(x = y, y = x, xend = y, yend = football_x)
+    ) +
+    geom_text(
+      data = filter(snap_data, team == "home"),
+      aes(label = xdist_ball), nudge_y = 1.5
+    ) +
+    scale_size_manual(values = c(6, 4, 6), guide = FALSE)
 
 ```
 
 
-
+The next step is going to be to take everything that I did up there, and throw it into functions so that this can be done for all the plays in the dataset.
