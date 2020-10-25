@@ -11,8 +11,6 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Objective
 
-Hello
-
 In this document, my goal is to see how tightly defensive backs line up against recievers at the snap, and whether this affects how well they cover routes. Some things to consider:
 
 - see which defensive backs play tight/soft most frequently, and which teams play tight/soft most frequently
