@@ -1,0 +1,119 @@
+---
+title: "Set-Up Distance at Snap"
+author: "Nate Rowan"
+date: "10/24/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Objective
+
+In this document, my goal is to see how tightly defensive backs line up against recievers at the snap, and whether this affects how well they cover routes. Some things to consider:
+
+- see which defensive backs play tight/soft most frequently, and which teams play tight/soft most frequently
+- is there a certain "type" of DB that plays tight/soft more often. Perhaps slower DB's play softer more often so they don't get burned?
+- see if there is a relationship between a team's average "softness" and their performance against the pass
+- under what situations do teams play softer or tighter coverage more frequently?
+- under what situations is it more favorable to play tight/soft coverage?
+- relationship between epa/play and tightness
+- does relationship between tightness and play success change depending on type of route (go route vs slant)
+- does tightness vary for teams that play man vs zone
+- does the success of tightness/softness vary for teams that play different coverage schemes
+
+```{r}
+### Load in packages
+library(tidyverse)
+library(gganimate)
+library(janitor)
+library(lubridate)
+```
+
+```{r}
+### Read in Big Data Bowl data
+plays_data <- read_csv(here::here("datasets/plays.csv"))
+players_data <- read_csv(here::here("datasets/players.csv"))
+games_data <- read_csv(here::here("datasets/games.csv"))
+week1_tracking_data <- read_csv(here::here("datasets/week1.csv"))
+```
+
+```{r}
+### Clean data
+
+### Standardize so that offense always goes in same direction
+week1_tracking_data <- week1_tracking_data %>%
+  mutate(x = ifelse(playDirection == "left", 120-x, x),
+         y = ifelse(playDirection == "left", 160/3 - y, y))
+
+### Changes names from ugly camelCase to snake_case
+plays_data <- janitor::clean_names(plays_data)
+players_data <- janitor::clean_names(players_data)
+games_data <- janitor::clean_names(games_data)
+week1_tracking_data <- janitor::clean_names(week1_tracking_data)
+
+### Change birthdates to a datetime object
+players_data <- players_data %>% 
+  mutate(birth_date = lubridate::parse_date_time(birth_date, 
+                                                 orders = c("y-m-d", "m/d/y")))
+
+```
+
+```{r}
+### Joining data together
+
+### Join plays and games data
+plays_data <- left_join(plays_data, games_data, by = "game_id")
+
+### Filter so I just have week 1 plays data
+week1_plays_data <- plays_data %>% 
+  filter(week == 1)
+
+### Join plays and tracking data
+plays_tracking_data <- left_join(week1_plays_data, 
+                                 week1_tracking_data, 
+                                 by = c("game_id", "play_id"))
+
+### Nest the tracking data into a list of dataframes
+plays_tracking_data <- plays_tracking_data %>%
+  nest(tracking_data = x:route)
+```
+
+```{r}
+### Calculate distance from line of scrimmage/reciever at snap
+set.seed(123)
+
+ex_ids <-  plays_tracking_data %>%
+  filter(pass_result == "C") %>%
+  slice_sample(n = 1) %>% 
+  select(game_id, play_id) 
+
+example_game_id <- ex_ids %>% 
+  select(game_id) %>% 
+  flatten_dbl()
+
+example_play_id <- ex_ids %>% 
+  select(play_id) %>% 
+  flatten_dbl()
+
+example_play <- plays_tracking_data %>%
+  filter(play_id == example_play_id, game_id == example_game_id) %>% 
+  unnest(cols = tracking_data)
+
+snap_data <- example_play %>% 
+  filter(event == "ball_snap")
+
+snap_data %>% 
+  ggplot(aes(x = y, y = x)) +
+    geom_point(aes(color = team)) +
+    geom_hline(linetype = "dashed", yintercept = filter(snap_data, display_name == "Football") %>% 
+                                                   .$x) +
+    geom_text(aes(label = position)) 
+
+
+
+```
+
+
+
